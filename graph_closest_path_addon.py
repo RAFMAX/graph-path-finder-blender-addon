@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Graph Closest Path",
     "author": "Abderraouf Benoudina",
-    "version": (1, 1, 1),
+    "version": (1, 2, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Addons",
     "description": "Find closest path between selected vertices",
@@ -160,6 +160,13 @@ class MESH_OT_graph_closest_path(bpy.types.Operator):
         default="DIJKSTRA",
     )
 
+    _timer = None
+    _anim_verts = []
+    _anim_index = 0
+    _final_edges = []
+    _bm = None
+    _obj = None
+
     def execute(self, context):
         obj = context.edit_object
         if not obj or obj.type != 'MESH':
@@ -183,9 +190,6 @@ class MESH_OT_graph_closest_path(bpy.types.Operator):
         n = len(bm.verts)
         edges, edge_map = build_graph(bm)
 
-        for e in bm.edges:
-            e.select = False
-
         remaining = set(v.index for v in sel_verts)
         current = active.index
         origin_active = active.index
@@ -194,6 +198,8 @@ class MESH_OT_graph_closest_path(bpy.types.Operator):
             remaining.add(current)
 
         first_step = True
+        path_vertices_all = []
+        path_edges_all = []
 
         while True:
             targets = [i for i in remaining if i != current]
@@ -229,20 +235,66 @@ class MESH_OT_graph_closest_path(bpy.types.Operator):
             else:
                 path = reconstruct_path_prev(prev, current, best)
 
+            if not path:
+                break
+
             for a, b in zip(path[:-1], path[1:]):
                 if not first_step and b == origin_active:
                     break
                 key = (min(a, b), max(a, b))
                 e = edge_map.get(key)
                 if e:
-                    e.select = True
+                    path_edges_all.append(e)
+
+            if not path_vertices_all:
+                path_vertices_all.extend(path)
+            else:
+                path_vertices_all.extend(path[1:])
 
             remaining.discard(best)
             current = best
             first_step = False
 
+        self._anim_verts = path_vertices_all
+        self._anim_index = 0
+        self._final_edges = path_edges_all
+        self._bm = bm
+        self._obj = obj
+
+        for v in bm.verts:
+            v.select = False
+        for e in bm.edges:
+            e.select = False
+
         bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
-        return {'FINISHED'}
+
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        if event.type == 'TIMER':
+            bm = self._bm
+            if self._anim_index < len(self._anim_verts):
+                idx = self._anim_verts[self._anim_index]
+                if idx is not None and idx < len(bm.verts):
+                    bm.verts[idx].select = True
+                self._anim_index += 1
+                bmesh.update_edit_mesh(self._obj.data, loop_triangles=False, destructive=False)
+                return {'RUNNING_MODAL'}
+            for v in bm.verts:
+                v.select = False
+            for e in bm.edges:
+                e.select = False
+            for e in self._final_edges:
+                e.select = True
+                e.verts[0].select = True
+                e.verts[1].select = True
+            bmesh.update_edit_mesh(self._obj.data, loop_triangles=False, destructive=False)
+            context.window_manager.event_timer_remove(self._timer)
+            return {'FINISHED'}
+        return {'RUNNING_MODAL'}
 
 
 class VIEW3D_PT_graph_closest_path(bpy.types.Panel):
