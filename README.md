@@ -1,19 +1,23 @@
 # Graph Closest Path (Blender Addon)
 
-A Blender addon that finds **shortest paths by edge length** on a mesh and **selects the path edges** between selected vertices.  
-It supports multiple shortest‑path algorithms and runs from the **View3D Sidebar > Addons** panel.
+A Blender addon that connects selected mesh vertices by building paths segment by segment from the active vertex.  
+It animates propagation and then selects the final combined path edges in **View3D Sidebar > Addons**.
 
 ## Features
 
 - Works in **Edit Mode** on mesh objects
 - Uses **selected vertices** and the **active vertex** as the start
-- Repeats: current → nearest selected vertex (shortest path)
-- Selects **path edges** in the mesh
+- Repeats: current -> nearest selected vertex (path segment)
+- Propagation animation per segment:
+  - Start spreading from current vertex
+  - Stop spreading as soon as a selected target is reached
+  - Continue from that reached target to the next one
+- Selects the final combined **path edges** in the mesh
 - Algorithms:
   - Dijkstra
-  - Bellman‑Ford
-  - Bellman‑Kalaba
-  - Floyd‑Warshall
+  - A*
+  - BFS
+  - DFS
 
 ## Install
 
@@ -31,6 +35,7 @@ It supports multiple shortest‑path algorithms and runs from the **View3D Sideb
 
 ## Notes
 
-- After the first segment, the original active vertex is **blocked** to avoid paths passing through it again.
+- After the first segment, the original active vertex is **blocked** to avoid passing through it again.
 - The addon uses edge lengths as weights (Euclidean distance).
-- Floyd‑Warshall is heavier for large meshes.
+- Dijkstra and A* are weighted by edge length.
+- BFS and DFS are unweighted traversal-based options.
