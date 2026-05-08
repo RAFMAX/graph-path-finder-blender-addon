@@ -63,6 +63,35 @@ def levels_from_prev(prev, start):
     return [levels[k] for k in sorted(levels.keys())]
 
 
+def levels_until_target(prev, start, target):
+    cache = {}
+
+    def hops(v):
+        if v == start:
+            return 0
+        if v in cache:
+            return cache[v]
+        p = prev[v]
+        if p is None:
+            return None
+        h = hops(p)
+        if h is None:
+            return None
+        cache[v] = h + 1
+        return cache[v]
+
+    target_hops = hops(target)
+    if target_hops is None:
+        return []
+
+    levels = {}
+    for v in range(len(prev)):
+        h = hops(v)
+        if h is not None and h <= target_hops:
+            levels.setdefault(h, []).append(v)
+    return [levels[k] for k in sorted(levels.keys())]
+
+
 def dijkstra_all(n, edges, start, blocked):
     graph = build_adj(n, edges, blocked)
     dist = [float("inf")] * n
@@ -80,6 +109,28 @@ def dijkstra_all(n, edges, start, blocked):
                 prev[v] = u
                 heapq.heappush(pq, (nd, v))
     return dist, prev
+
+
+def dijkstra_to_any_target(n, edges, start, targets, blocked):
+    graph = build_adj(n, edges, blocked)
+    dist = [float("inf")] * n
+    prev = [None] * n
+    dist[start] = 0.0
+    target_set = set(targets)
+    pq = [(0.0, start)]
+    while pq:
+        d, u = heapq.heappop(pq)
+        if d != dist[u]:
+            continue
+        if u in target_set:
+            return u, dist, prev
+        for v, w in graph[u]:
+            nd = d + w
+            if nd < dist[v]:
+                dist[v] = nd
+                prev[v] = u
+                heapq.heappush(pq, (nd, v))
+    return None, dist, prev
 
 
 def astar_to_target(n, edges, start, target, coords, blocked):
@@ -125,6 +176,27 @@ def bfs_all(n, edges, start, blocked):
     return dist, prev
 
 
+def bfs_to_any_target(n, edges, start, targets, blocked):
+    graph = build_adj(n, edges, blocked)
+    dist = [float("inf")] * n
+    prev = [None] * n
+    dist[start] = 0
+    target_set = set(targets)
+    q = [start]
+    head = 0
+    while head < len(q):
+        u = q[head]
+        head += 1
+        if u in target_set:
+            return u, dist, prev
+        for v, _ in graph[u]:
+            if dist[v] == float("inf"):
+                dist[v] = dist[u] + 1
+                prev[v] = u
+                q.append(v)
+    return None, dist, prev
+
+
 def dfs_all(n, edges, start, blocked):
     graph = build_adj(n, edges, blocked)
     dist = [float("inf")] * n
@@ -143,6 +215,29 @@ def dfs_all(n, edges, start, blocked):
                 prev[v] = u
                 stack.append(v)
     return dist, prev
+
+
+def dfs_to_any_target(n, edges, start, targets, blocked):
+    graph = build_adj(n, edges, blocked)
+    dist = [float("inf")] * n
+    prev = [None] * n
+    dist[start] = 0
+    target_set = set(targets)
+    stack = [start]
+    visited = set()
+    while stack:
+        u = stack.pop()
+        if u in visited:
+            continue
+        visited.add(u)
+        if u in target_set:
+            return u, dist, prev
+        for v, _ in graph[u]:
+            if v not in visited and dist[v] == float("inf"):
+                dist[v] = dist[u] + 1
+                prev[v] = u
+                stack.append(v)
+    return None, dist, prev
 
 
 def reconstruct_path(prev, start, end):
@@ -225,36 +320,30 @@ class MESH_OT_graph_closest_path(bpy.types.Operator):
                 blocked.add(origin_active)
 
             if self.method == "DIJKSTRA":
-                dist, prev = dijkstra_all(n, edges, current, blocked)
+                best, _, prev = dijkstra_to_any_target(n, edges, current, targets, blocked)
             elif self.method == "BFS":
-                dist, prev = bfs_all(n, edges, current, blocked)
+                best, _, prev = bfs_to_any_target(n, edges, current, targets, blocked)
             elif self.method == "DFS":
-                dist, prev = dfs_all(n, edges, current, blocked)
+                best, _, prev = dfs_to_any_target(n, edges, current, targets, blocked)
             else:
-                dist, _ = dijkstra_all(n, edges, current, blocked)
+                # Pick the nearest target first, then build a precise segment with A*.
+                best, _, _ = dijkstra_to_any_target(n, edges, current, targets, blocked)
+                prev = None
 
-            best = None
-            best_dist = float("inf")
-
-            for t in targets:
-                d = dist[t]
-                if d < best_dist:
-                    best_dist = d
-                    best = t
-
-            if best is None or best_dist == float("inf"):
+            if best is None:
                 break
 
             if self.method == "ASTAR":
                 dist_a, prev = astar_to_target(n, edges, current, best, coords, blocked)
 
-            levels = levels_from_prev(prev, current)
-            steps_all.append(None)
-            steps_all.extend(levels)
-
             path = reconstruct_path(prev, current, best)
             if not path:
                 break
+
+            # Show propagation, but stop the animation once the reached target appears.
+            levels = levels_until_target(prev, current, best)
+            steps_all.append(None)
+            steps_all.extend(levels)
 
             for a, b in zip(path[:-1], path[1:]):
                 if not first_step and b == origin_active:
